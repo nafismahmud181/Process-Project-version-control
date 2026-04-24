@@ -5,6 +5,7 @@ import type { VersionMeta } from "@/types/process";
 interface SidebarProps {
   versions: VersionMeta[];
   selectedIds: string[];
+  loadingId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onUploadClick: () => void;
@@ -44,6 +45,7 @@ function groupVersions(versions: VersionMeta[]): ProcessGroup[] {
 export function Sidebar({
   versions,
   selectedIds,
+  loadingId,
   onSelect,
   onDelete,
   onUploadClick,
@@ -59,7 +61,6 @@ export function Sidebar({
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-gray-200 bg-gray-50 dark:border-gray-800 dark:bg-gray-900">
-      {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-800">
         <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
           Versions
@@ -72,7 +73,6 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* Version list grouped by process */}
       <div className="flex-1 overflow-y-auto">
         {groups.length === 0 ? (
           <p className="px-4 py-6 text-center text-xs leading-relaxed text-gray-400 dark:text-gray-600">
@@ -83,7 +83,7 @@ export function Sidebar({
         ) : (
           groups.map((group) => (
             <div key={group.processId}>
-              {/* Process group header */}
+              {/* Group header */}
               <div className="sticky top-0 z-10 border-b border-gray-200 bg-gray-100 px-4 py-2 dark:border-gray-800 dark:bg-gray-800/80">
                 <p className="truncate text-[11px] font-medium text-gray-600 dark:text-gray-400">
                   {group.processName}
@@ -94,47 +94,57 @@ export function Sidebar({
                 </p>
               </div>
 
-              {/* Versions in this group */}
               {group.versions.map((v) => {
-                const isSel = selectedIds.includes(v.id);
-                const idx = selectedIds.indexOf(v.id);
+                const isSel    = selectedIds.includes(v.id);
+                const idx      = selectedIds.indexOf(v.id);
+                const isLoading = loadingId === v.id;
+
                 return (
                   <div
                     key={v.id}
-                    onClick={() => onSelect(v.id)}
+                    onClick={() => !isLoading && onSelect(v.id)}
                     className={`cursor-pointer border-b border-gray-200 px-4 py-3 transition-colors dark:border-gray-800 ${
                       isSel
                         ? "border-l-2 border-l-blue-500 bg-white dark:bg-gray-800"
                         : "border-l-2 border-l-transparent hover:bg-white dark:hover:bg-gray-800/50"
-                    }`}
+                    } ${isLoading ? "opacity-60" : ""}`}
                   >
                     <div className="mb-1 flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {/* A/B selection badge */}
+                      <div className="flex min-w-0 items-center gap-1.5">
                         {isSel && (
                           <span className="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-400">
                             {idx === 0 ? "A" : "B"}
                           </span>
                         )}
-                        {/* Version number badge */}
                         <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-500">
                           v{v.versionNumber}
                         </span>
                         <span className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {v.label}
+                          {isLoading ? "Loading…" : v.label}
                         </span>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(v.id);
-                        }}
-                        className="shrink-0 text-base leading-none text-gray-300 transition-colors hover:text-gray-500 dark:text-gray-700 dark:hover:text-gray-400"
-                        title="Delete version"
-                      >
-                        ×
-                      </button>
+
+                      {/* Download + Delete */}
+                      <div className="flex shrink-0 items-center gap-1">
+                        <a
+                          href={v.blobUrl}
+                          download={`${v.processId}-v${v.versionNumber}.json`}
+                          onClick={(e) => e.stopPropagation()}
+                          title="Download JSON"
+                          className="text-sm text-gray-300 transition-colors hover:text-blue-500 dark:text-gray-700 dark:hover:text-blue-400"
+                        >
+                          ↓
+                        </a>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDelete(v.id); }}
+                          title="Delete version"
+                          className="text-base leading-none text-gray-300 transition-colors hover:text-rose-500 dark:text-gray-700 dark:hover:text-rose-400"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
+
                     <p className="mb-2 text-[11px] text-gray-400 dark:text-gray-600">
                       {formatDate(v.timestamp)}
                     </p>
@@ -144,7 +154,7 @@ export function Sidebar({
                       </span>
                     </div>
                     {v.note && (
-                      <p className="mt-1.5 text-[11px] italic text-gray-500 dark:text-gray-500">
+                      <p className="mt-1.5 text-[11px] italic text-gray-500">
                         {v.note}
                       </p>
                     )}
@@ -156,7 +166,6 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Hint */}
       {versions.length > 0 && (
         <p className="border-t border-gray-200 px-4 py-2 text-center text-[11px] text-gray-400 dark:border-gray-800 dark:text-gray-600">
           {hint}

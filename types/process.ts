@@ -72,4 +72,5 @@ export interface VersionMeta {
   keyCount: number;
   docCount: number;
   versionNumber: number;
+  blobUrl: string;      // URL of the stored data blob on Vercel Blob
 }
