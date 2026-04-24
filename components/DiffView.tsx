@@ -27,10 +27,9 @@ export function DiffView({ fromMeta, toMeta, keysDiff, docsDiff }: DiffViewProps
 
   const summaryBadges: DiffStatus[] = ["added", "removed", "modified"];
 
-  const items = filterByStatus(
-    section === "keys" ? keysDiff : docsDiff,
-    filter
-  );
+  const filteredKeys = filterByStatus(keysDiff, filter);
+  const filteredDocs = filterByStatus(docsDiff, filter);
+  const items = section === "keys" ? filteredKeys : filteredDocs;
 
   const countChanged = (diff: DiffItem<unknown>[], s: DiffStatus) =>
     diff.filter((i) => i.status === s).length;

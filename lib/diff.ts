@@ -40,7 +40,7 @@ export function diffKeys(
 ): DiffItem<ProcessKey>[] {
   const mapA = Object.fromEntries(keysA.map((k) => [k.keyValue, k]));
   const mapB = Object.fromEntries(keysB.map((k) => [k.keyValue, k]));
-  const all = [...new Set([...Object.keys(mapA), ...Object.keys(mapB)])];
+  const all = Array.from(new Set([...Object.keys(mapA), ...Object.keys(mapB)]));
 
   return all.map((id) => {
     const a = mapA[id];
@@ -75,7 +75,7 @@ export function diffDocs(
 ): DiffItem<ProcessDocument>[] {
   const mapA = Object.fromEntries(docsA.map((d) => [d.doc_type, d]));
   const mapB = Object.fromEntries(docsB.map((d) => [d.doc_type, d]));
-  const all = [...new Set([...Object.keys(mapA), ...Object.keys(mapB)])];
+  const all = Array.from(new Set([...Object.keys(mapA), ...Object.keys(mapB)]));
 
   return all.map((id) => {
     const a = mapA[id];
