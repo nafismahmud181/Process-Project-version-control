@@ -24,7 +24,9 @@ export async function GET(
     }
 
     const data = await res.json();
-    return NextResponse.json(data);
+    // The stored file may be an array (e.g. [process]) — unwrap it
+    const process = Array.isArray(data) ? data[0] : data;
+    return NextResponse.json(process);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: "GET failed", detail: message }, { status: 500 });
