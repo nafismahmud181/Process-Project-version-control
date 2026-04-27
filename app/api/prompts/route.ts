@@ -14,7 +14,7 @@ export async function GET() {
     const { blobs } = await list({ prefix: "pvcp/prompts-index" });
     if (!blobs.length) return NextResponse.json([]);
 
-    const res = await fetch(blobs[0].downloadUrl);
+    const res = await fetch(blobs[0].url);
     if (!res.ok) return NextResponse.json([]);
 
     const index: PromptIndexEntry[] = await res.json();
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     try {
       const { blobs } = await list({ prefix: "pvcp/prompts-index" });
       if (blobs.length) {
-        const res = await fetch(blobs[0].downloadUrl);
+        const res = await fetch(blobs[0].url);
         if (res.ok) index = await res.json();
       }
     } catch { /* start with empty index */ }
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
       try {
         const { blobs } = await list({ prefix: blobPath });
         if (blobs.length) {
-          const res = await fetch(blobs[0].downloadUrl);
+          const res = await fetch(blobs[0].url);
           if (res.ok) entry = await res.json();
         }
       } catch { /* new entry */ }
@@ -161,7 +161,7 @@ export async function DELETE(request: Request) {
     try {
       const { blobs } = await list({ prefix: "pvcp/prompts-index" });
       if (blobs.length) {
-        const res = await fetch(blobs[0].downloadUrl);
+        const res = await fetch(blobs[0].url);
         if (res.ok) index = await res.json();
       }
     } catch { /* empty index */ }
@@ -186,7 +186,7 @@ export async function DELETE(request: Request) {
       try {
         const { blobs } = await list({ prefix: blobPath });
         if (blobs.length) {
-          const res = await fetch(blobs[0].downloadUrl);
+          const res = await fetch(blobs[0].url);
           if (res.ok) entry = await res.json();
           // Track the blob URL for potential deletion
           blobsToDelete.push(...blobs.map((b) => b.url));

@@ -18,7 +18,7 @@ export async function GET(
     }
 
     // downloadUrl is a short-lived signed URL — works server-side for private blobs
-    const res = await fetch(blobs[0].downloadUrl);
+    const res = await fetch(blobs[0].url);
     if (!res.ok) {
       return NextResponse.json({ error: "Failed to fetch blob" }, { status: 502 });
     }

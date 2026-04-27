@@ -16,7 +16,7 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const res = await fetch(blobs[0].downloadUrl);
+    const res = await fetch(blobs[0].url);
     if (!res.ok) {
       return NextResponse.json({ error: "Failed to fetch" }, { status: 502 });
     }
@@ -48,7 +48,7 @@ export async function DELETE(
     try {
       const { blobs: idxBlobs } = await list({ prefix: "pvcp/prompts-index" });
       if (idxBlobs.length) {
-        const res = await fetch(idxBlobs[0].downloadUrl);
+        const res = await fetch(idxBlobs[0].url);
         if (res.ok) index = await res.json();
       }
     } catch { /* empty */ }

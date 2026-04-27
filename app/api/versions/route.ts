@@ -7,19 +7,41 @@ const DATA_PREFIX = "pvcp/data/";
 
 export async function GET() {
   try {
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!token) {
+      return NextResponse.json(
+        { error: "Missing BLOB_READ_WRITE_TOKEN" },
+        { status: 500 }
+      );
+    }
+
     const { blobs } = await list({ prefix: META_PREFIX });
-    const metas = await Promise.all(
+
+    if (!blobs.length) return NextResponse.json([]);
+
+    // Use Promise.allSettled so one bad blob doesn't kill the whole list
+    const results = await Promise.allSettled(
       blobs.map(async (blob) => {
-        const res = await fetch(blob.downloadUrl);
+        // blob.url is the permanent URL for public blobs
+        // blob.downloadUrl is a signed URL that can expire — avoid it here
+        const res = await fetch(blob.url);
+        if (!res.ok) throw new Error(`${blob.url} → ${res.status}`);
         return (await res.json()) as VersionMeta;
       })
     );
+
+    const metas = results
+      .filter((r): r is PromiseFulfilledResult<VersionMeta> => r.status === "fulfilled")
+      .map((r) => r.value);
+
     metas.sort(
       (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
+
     return NextResponse.json(metas);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    console.error("GET /api/versions error:", message);
     return NextResponse.json({ error: "GET failed", detail: message }, { status: 500 });
   }
 }
