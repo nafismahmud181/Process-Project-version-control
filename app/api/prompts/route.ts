@@ -121,6 +121,7 @@ export async function POST(request: Request) {
         versionCount: updatedEntry.versions.length,
         hasChanges: updatedEntry.versions.length > 1,
         updatedAt: updatedEntry.updatedAt,
+        latestFieldDesc: updatedEntry.versions[updatedEntry.versions.length - 1]?.field_description ?? "",
       };
 
       const existingIdx = index.findIndex((i) => i.keyValue === k.keyValue && i.processId === processId);

@@ -26,6 +26,7 @@ export interface PromptIndexEntry {
   processName: string;
   processId: string;
   versionCount: number;
-  hasChanges: boolean;   // true if more than one version exists
+  hasChanges: boolean;
   updatedAt: string;
+  latestFieldDesc?: string;  // first line of the latest field description, for card preview
 }
