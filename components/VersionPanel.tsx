@@ -12,6 +12,7 @@ import {
   fetchVersionData,
   removeVersion,
 } from "@/lib/storage";
+import { syncPromptsFromUpload } from "@/lib/prompts";
 import type { Process, VersionMeta } from "@/types/process";
 
 export function VersionPanel() {
@@ -97,6 +98,9 @@ export function VersionPanel() {
       const saved = await uploadVersion(pendingFile, metaWithoutUrl);
       setVersions((prev) => [saved, ...prev]);
       setLoaded((prev) => ({ ...prev, [id]: proc }));
+
+      // Auto-sync prompts in the background
+      syncPromptsFromUpload(proc, saved).catch(console.error);
     } catch (err) {
       alert("Upload failed: " + (err as Error).message);
     } finally {
