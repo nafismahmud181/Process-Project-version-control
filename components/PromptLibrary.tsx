@@ -292,6 +292,19 @@ export function PromptLibrary() {
     });
   }, [index, search, typeFilter, changeFilter]);
 
+  const handleDelete = async (entry: PromptIndexEntry, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIndex((prev) => prev.filter(
+      (i) => !(i.keyValue === entry.keyValue && i.processId === entry.processId)
+    ));
+    if (selected?.keyValue === entry.keyValue && selected?.processId === entry.processId) {
+      setSelected(null);
+    }
+    await fetch(`/api/prompts/${encodeURIComponent(entry.keyValue + "__" + entry.processId)}`, {
+      method: "DELETE",
+    });
+  };
+
   const changedCount = index.filter((i) => i.hasChanges).length;
 
   if (booting) {
@@ -380,17 +393,21 @@ export function PromptLibrary() {
                     <span className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
                       {entry.label}
                     </span>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {entry.hasChanges && (
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {entry.hasChanges ? (
                         <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-400">
                           v{entry.versionCount}
                         </span>
+                      ) : (
+                        <span className="text-[10px] text-gray-400 dark:text-gray-600">v1</span>
                       )}
-                      {!entry.hasChanges && (
-                        <span className="text-[10px] text-gray-400 dark:text-gray-600">
-                          v1
-                        </span>
-                      )}
+                      <button
+                        onClick={(e) => handleDelete(entry, e)}
+                        title="Delete prompt"
+                        className="text-base leading-none text-gray-300 transition-colors hover:text-rose-500 dark:text-gray-700 dark:hover:text-rose-400"
+                      >
+                        ×
+                      </button>
                     </div>
                   </div>
                   <p className="truncate font-mono text-[11px] text-gray-500 dark:text-gray-500">

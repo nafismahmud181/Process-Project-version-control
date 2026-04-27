@@ -12,7 +12,7 @@ import {
   fetchVersionData,
   removeVersion,
 } from "@/lib/storage";
-import { syncPromptsFromUpload } from "@/lib/prompts";
+import { syncPromptsFromUpload, deletePromptsForVersion } from "@/lib/prompts";
 import type { Process, VersionMeta } from "@/types/process";
 
 export function VersionPanel() {
@@ -139,10 +139,15 @@ export function VersionPanel() {
   };
 
   const handleDelete = async (id: string) => {
+    const meta = versions.find((v) => v.id === id);
     setVersions((prev) => prev.filter((v) => v.id !== id));
     setSelIds((prev) => prev.filter((x) => x !== id));
     setLoaded((prev) => { const n = { ...prev }; delete n[id]; return n; });
     await removeVersion(id);
+    // Clean up prompts that came from this version
+    if (meta) {
+      deletePromptsForVersion(meta.processId, meta.label).catch(console.error);
+    }
   };
 
   const diff = (() => {

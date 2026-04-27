@@ -42,6 +42,17 @@ export async function syncPromptsFromUpload(
   });
 }
 
+export async function deletePromptsForVersion(
+  processId: string,
+  sourceVersionLabel: string
+): Promise<void> {
+  await fetch("/api/prompts", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ processId, sourceVersionLabel }),
+  });
+}
+
 // ─── Server-side helpers (used in API routes) ─────────────────────────────────
 
 export function buildEntryId(keyValue: string, processId: string): string {
