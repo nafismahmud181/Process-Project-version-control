@@ -9,11 +9,12 @@ export interface PromptVersion {
 }
 
 export interface PromptEntry {
-  keyValue: string;       // unique key e.g. "invoiceNumber"
-  label: string;          // display name e.g. "Invoice Number"
-  keyType: string;        // key / table / addressBlock / etc.
-  processName: string;    // e.g. "CR_IMPORT_DGFCW1CustomsDeclaration(B+CIV)"
-  processId: string;      // e.g. "CR-AA5-0000003"
+  keyValue: string;
+  label: string;
+  keyType: string;
+  processName: string;
+  processId: string;
+  project: string;
   versions: PromptVersion[];
   updatedAt: string;
 }
@@ -25,8 +26,9 @@ export interface PromptIndexEntry {
   keyType: string;
   processName: string;
   processId: string;
+  project: string;
   versionCount: number;
   hasChanges: boolean;
   updatedAt: string;
-  latestFieldDesc?: string;  // first line of the latest field description, for card preview
+  latestFieldDesc?: string;
 }

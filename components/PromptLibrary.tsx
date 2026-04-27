@@ -212,6 +212,14 @@ function PromptModal({
               <span className="font-mono text-xs text-gray-500 dark:text-gray-500">{indexEntry.keyValue}</span>
               <span className="text-gray-300 dark:text-gray-700">·</span>
               <TypeBadge type={indexEntry.keyType} />
+              {indexEntry.project && indexEntry.project !== "—" && (
+                <>
+                  <span className="text-gray-300 dark:text-gray-700">·</span>
+                  <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-400">
+                    {indexEntry.project}
+                  </span>
+                </>
+              )}
               <span className="text-gray-300 dark:text-gray-700">·</span>
               <span className="text-xs text-gray-500 dark:text-gray-500">{indexEntry.processName}</span>
             </div>
@@ -316,11 +324,18 @@ function PromptCard({
         </p>
       )}
 
-      {/* Bottom: process name + date */}
+      {/* Bottom: project · process name · date */}
       <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3 dark:border-gray-800">
-        <span className="truncate text-[10px] text-gray-400 dark:text-gray-600">
-          {entry.processName}
-        </span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {entry.project && entry.project !== "—" && (
+            <span className="shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-400">
+              {entry.project}
+            </span>
+          )}
+          <span className="truncate text-[10px] text-gray-400 dark:text-gray-600">
+            {entry.processName}
+          </span>
+        </div>
         <span className="ml-2 shrink-0 text-[10px] text-gray-400 dark:text-gray-600">
           {fmtDate(entry.updatedAt)}
         </span>
@@ -343,6 +358,7 @@ export function PromptLibrary() {
   const [search, setSearch]         = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [changeFilter, setChangeFilter] = useState<ChangeFilter>("all");
+  const [projectFilter, setProjectFilter] = useState("all");
 
   useEffect(() => {
     fetchPromptIndex().then((idx) => {
@@ -356,6 +372,11 @@ export function PromptLibrary() {
     [index]
   );
 
+  const projects = useMemo(
+    () => Array.from(new Set(index.map((i) => i.project).filter(Boolean))).sort(),
+    [index]
+  );
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     return index.filter((i) => {
@@ -364,15 +385,17 @@ export function PromptLibrary() {
         i.label.toLowerCase().includes(q) ||
         i.keyValue.toLowerCase().includes(q) ||
         i.processName.toLowerCase().includes(q) ||
+        (i.project ?? "").toLowerCase().includes(q) ||
         (i.latestFieldDesc ?? "").toLowerCase().includes(q);
-      const matchType   = typeFilter === "all" || i.keyType === typeFilter;
-      const matchChange =
+      const matchType    = typeFilter === "all" || i.keyType === typeFilter;
+      const matchChange  =
         changeFilter === "all" ||
         (changeFilter === "changed" && i.hasChanges) ||
         (changeFilter === "stable"  && !i.hasChanges);
-      return matchSearch && matchType && matchChange;
+      const matchProject = projectFilter === "all" || i.project === projectFilter;
+      return matchSearch && matchType && matchChange && matchProject;
     });
-  }, [index, search, typeFilter, changeFilter]);
+  }, [index, search, typeFilter, changeFilter, projectFilter]);
 
   const handleDelete = useCallback((entry: PromptIndexEntry) => {
     setIndex((prev) =>
@@ -382,6 +405,11 @@ export function PromptLibrary() {
       method: "DELETE",
     }).catch(console.error);
   }, []);
+
+  const clearFilters = () => {
+    setSearch(""); setTypeFilter("all"); setChangeFilter("all"); setProjectFilter("all");
+  };
+  const hasActiveFilters = search || typeFilter !== "all" || changeFilter !== "all" || projectFilter !== "all";
 
   const changedCount = index.filter((i) => i.hasChanges).length;
 
@@ -457,14 +485,14 @@ export function PromptLibrary() {
           })}
         </div>
 
-        {/* Result count */}
-        {(search || typeFilter !== "all" || changeFilter !== "all") && (
+        {/* Result count + clear */}
+        {hasActiveFilters && (
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-gray-400 dark:text-gray-600">
               {filtered.length} of {index.length}
             </span>
             <button
-              onClick={() => { setSearch(""); setTypeFilter("all"); setChangeFilter("all"); }}
+              onClick={clearFilters}
               className="text-xs text-gray-400 underline hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-400"
             >
               Clear
@@ -472,6 +500,26 @@ export function PromptLibrary() {
           </div>
         )}
       </div>
+
+      {/* Project filter */}
+      {projects.length > 1 && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          <span className="self-center text-xs font-medium text-gray-400 dark:text-gray-600">Project</span>
+          {["all", ...projects].map((p) => (
+            <button
+              key={p}
+              onClick={() => setProjectFilter(p)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                projectFilter === p
+                  ? "border-indigo-400 bg-indigo-600 text-white dark:border-indigo-600 dark:bg-indigo-700"
+                  : "border-gray-200 bg-white text-gray-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:border-indigo-800 dark:hover:text-indigo-400"
+              }`}
+            >
+              {p === "all" ? "All projects" : p}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Card grid */}
       {index.length === 0 ? (
@@ -488,10 +536,7 @@ export function PromptLibrary() {
       ) : filtered.length === 0 ? (
         <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-gray-200 dark:border-gray-800">
           <p className="text-sm text-gray-500">No prompts match your filters.</p>
-          <button
-            onClick={() => { setSearch(""); setTypeFilter("all"); setChangeFilter("all"); }}
-            className="text-xs text-blue-500 hover:underline"
-          >
+          <button onClick={clearFilters} className="text-xs text-blue-500 hover:underline">
             Clear filters
           </button>
         </div>

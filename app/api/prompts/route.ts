@@ -40,6 +40,7 @@ export async function POST(request: Request) {
 
     const processId   = process.process_id ?? "—";
     const processName = process.name ?? process.free_name ?? "—";
+    const project     = process.project ?? "—";
 
     // Load current index — use downloadUrl to bypass CDN cache (index is frequently overwritten)
     let index: PromptIndexEntry[] = [];
@@ -100,6 +101,7 @@ export async function POST(request: Request) {
             keyType: k.type,
             processName,
             processId,
+            project,
             versions: [newVersion],
             updatedAt: new Date().toISOString(),
           };
@@ -118,6 +120,7 @@ export async function POST(request: Request) {
         keyType: updatedEntry.keyType,
         processName: updatedEntry.processName,
         processId: updatedEntry.processId,
+        project: updatedEntry.project ?? "—",
         versionCount: updatedEntry.versions.length,
         hasChanges: updatedEntry.versions.length > 1,
         updatedAt: updatedEntry.updatedAt,
