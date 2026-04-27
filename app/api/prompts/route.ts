@@ -29,7 +29,6 @@ export async function GET() {
 }
 
 // ─── POST /api/prompts ────────────────────────────────────────────────────────
-// Receives keys + process + versionMeta, upserts each prompt entry
 export async function POST(request: Request) {
   try {
     const { keys, process, versionMeta } = (await request.json()) as {
@@ -42,7 +41,7 @@ export async function POST(request: Request) {
     const processName = process.name ?? process.free_name ?? "—";
     const project     = process.project ?? "—";
 
-    // Load current index — use downloadUrl to bypass CDN cache (index is frequently overwritten)
+    // Load current index once upfront
     let index: PromptIndexEntry[] = [];
     try {
       const { blobs } = await list({ prefix: "pvcp/prompts-index" });
@@ -52,97 +51,107 @@ export async function POST(request: Request) {
       }
     } catch { /* start with empty index */ }
 
-    // Process each key
-    for (const k of keys) {
-      const entryId    = buildEntryId(k.keyValue, processId);
-      const blobPath   = buildPromptBlobPath(entryId);
-      const pp = k.process_prompt as import("@/types/process").ProcessPrompt | undefined;
-      const fieldDesc  = pp?.Field_Description?.trim() ?? "";
-      const rulesDesc  = pp?.Rules_Description?.trim() ?? "";
-      const extractionType = pp?.Extraction_Type ?? "";
-      const docClass   = pp?.DocClass ?? "";
+    // Process all keys in parallel — avoids sequential blob round-trips timing out
+    const results = await Promise.allSettled(
+      keys.map(async (k) => {
+        const entryId  = buildEntryId(k.keyValue, processId);
+        const blobPath = buildPromptBlobPath(entryId);
+        const pp       = k.process_prompt as import("@/types/process").ProcessPrompt | undefined;
+        const fieldDesc      = pp?.Field_Description?.trim() ?? "";
+        const rulesDesc      = pp?.Rules_Description?.trim() ?? "";
+        const extractionType = pp?.Extraction_Type ?? "";
+        const docClass       = pp?.DocClass ?? "";
 
-      // Load existing entry — use downloadUrl to bypass CDN cache (entry blob is overwritten on each version)
-      let entry: PromptEntry | null = null;
-      try {
-        const { blobs } = await list({ prefix: blobPath });
-        if (blobs.length) {
-          const res = await fetch(blobs[0].downloadUrl);
-          if (res.ok) entry = await res.json();
+        // Load existing entry (bypass CDN cache with downloadUrl)
+        let entry: PromptEntry | null = null;
+        try {
+          const { blobs } = await list({ prefix: blobPath });
+          if (blobs.length) {
+            const res = await fetch(blobs[0].downloadUrl);
+            if (res.ok) entry = await res.json();
+          }
+        } catch { /* new entry */ }
+
+        // Skip if content is identical to latest version
+        if (entry) {
+          const latest = entry.versions[entry.versions.length - 1];
+          if (
+            latest.field_description === fieldDesc &&
+            latest.rules_description === rulesDesc &&
+            latest.extraction_type   === extractionType &&
+            latest.doc_class         === docClass
+          ) return null; // no change
         }
-      } catch { /* new entry */ }
 
-      const newVersion: PromptVersion = {
-        versionNumber: entry ? entry.versions.length + 1 : 1,
-        field_description: fieldDesc,
-        rules_description: rulesDesc,
-        extraction_type: extractionType,
-        doc_class: docClass,
-        sourceVersionLabel: versionMeta.label,
-        timestamp: new Date().toISOString(),
-      };
+        const newVersion: PromptVersion = {
+          versionNumber: entry ? entry.versions.length + 1 : 1,
+          field_description: fieldDesc,
+          rules_description: rulesDesc,
+          extraction_type: extractionType,
+          doc_class: docClass,
+          sourceVersionLabel: versionMeta.label,
+          timestamp: new Date().toISOString(),
+        };
 
-      // Skip if content is identical to the latest version
-      if (entry) {
-        const latest = entry.versions[entry.versions.length - 1];
-        if (
-          latest.field_description === fieldDesc &&
-          latest.rules_description === rulesDesc &&
-          latest.extraction_type   === extractionType &&
-          latest.doc_class         === docClass
-        ) continue;
-      }
+        const updatedEntry: PromptEntry = entry
+          ? { ...entry, versions: [...entry.versions, newVersion], updatedAt: new Date().toISOString() }
+          : {
+              keyValue: k.keyValue,
+              label: k.label,
+              keyType: k.type,
+              processName,
+              processId,
+              project,
+              versions: [newVersion],
+              updatedAt: new Date().toISOString(),
+            };
 
-      const updatedEntry: PromptEntry = entry
-        ? { ...entry, versions: [...entry.versions, newVersion], updatedAt: new Date().toISOString() }
-        : {
-            keyValue: k.keyValue,
-            label: k.label,
-            keyType: k.type,
-            processName,
-            processId,
-            project,
-            versions: [newVersion],
-            updatedAt: new Date().toISOString(),
-          };
+        // Save entry blob
+        await put(blobPath, JSON.stringify(updatedEntry), {
+          access: "public",
+          contentType: "application/json",
+          addRandomSuffix: false,
+        });
 
-      // Save the entry blob
-      await put(blobPath, JSON.stringify(updatedEntry), {
-        access: "public",
-        contentType: "application/json",
-        addRandomSuffix: false,
-      });
+        return updatedEntry;
+      })
+    );
 
-      // Update index
+    // Collect successful entries and update index
+    for (const result of results) {
+      if (result.status !== "fulfilled" || !result.value) continue;
+      const updatedEntry = result.value;
+
       const idxEntry: PromptIndexEntry = {
-        keyValue: updatedEntry.keyValue,
-        label: updatedEntry.label,
-        keyType: updatedEntry.keyType,
-        processName: updatedEntry.processName,
-        processId: updatedEntry.processId,
-        project: updatedEntry.project ?? "—",
-        versionCount: updatedEntry.versions.length,
-        hasChanges: updatedEntry.versions.length > 1,
-        updatedAt: updatedEntry.updatedAt,
+        keyValue:       updatedEntry.keyValue,
+        label:          updatedEntry.label,
+        keyType:        updatedEntry.keyType,
+        processName:    updatedEntry.processName,
+        processId:      updatedEntry.processId,
+        project:        updatedEntry.project ?? "—",
+        versionCount:   updatedEntry.versions.length,
+        hasChanges:     updatedEntry.versions.length > 1,
+        updatedAt:      updatedEntry.updatedAt,
         latestFieldDesc: updatedEntry.versions[updatedEntry.versions.length - 1]?.field_description ?? "",
       };
 
-      const existingIdx = index.findIndex((i) => i.keyValue === k.keyValue && i.processId === processId);
-      if (existingIdx >= 0) {
-        index[existingIdx] = idxEntry;
-      } else {
-        index.push(idxEntry);
-      }
+      const existingIdx = index.findIndex(
+        (i) => i.keyValue === updatedEntry.keyValue && i.processId === processId
+      );
+      if (existingIdx >= 0) index[existingIdx] = idxEntry;
+      else index.push(idxEntry);
     }
 
-    // Save updated index
+    // Save updated index once
     await put(PROMPTS_INDEX_PATH, JSON.stringify(index), {
       access: "public",
       contentType: "application/json",
       addRandomSuffix: false,
     });
 
-    return NextResponse.json({ synced: keys.length });
+    const synced = results.filter((r) => r.status === "fulfilled" && r.value).length;
+    return NextResponse.json({ synced });
+
   } catch (err) {
     return NextResponse.json(
       { error: "Sync failed", detail: String(err) },
