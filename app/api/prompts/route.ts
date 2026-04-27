@@ -14,7 +14,8 @@ export async function GET() {
     const { blobs } = await list({ prefix: "pvcp/prompts-index" });
     if (!blobs.length) return NextResponse.json([]);
 
-    const res = await fetch(blobs[0].url);
+    // downloadUrl bypasses CDN cache — critical for a frequently-overwritten index blob
+    const res = await fetch(blobs[0].downloadUrl);
     if (!res.ok) return NextResponse.json([]);
 
     const index: PromptIndexEntry[] = await res.json();
@@ -40,12 +41,12 @@ export async function POST(request: Request) {
     const processId   = process.process_id ?? "—";
     const processName = process.name ?? process.free_name ?? "—";
 
-    // Load current index
+    // Load current index — use downloadUrl to bypass CDN cache (index is frequently overwritten)
     let index: PromptIndexEntry[] = [];
     try {
       const { blobs } = await list({ prefix: "pvcp/prompts-index" });
       if (blobs.length) {
-        const res = await fetch(blobs[0].url);
+        const res = await fetch(blobs[0].downloadUrl);
         if (res.ok) index = await res.json();
       }
     } catch { /* start with empty index */ }
@@ -60,12 +61,12 @@ export async function POST(request: Request) {
       const extractionType = pp?.Extraction_Type ?? "";
       const docClass   = pp?.DocClass ?? "";
 
-      // Load existing entry if any
+      // Load existing entry — use downloadUrl to bypass CDN cache (entry blob is overwritten on each version)
       let entry: PromptEntry | null = null;
       try {
         const { blobs } = await list({ prefix: blobPath });
         if (blobs.length) {
-          const res = await fetch(blobs[0].url);
+          const res = await fetch(blobs[0].downloadUrl);
           if (res.ok) entry = await res.json();
         }
       } catch { /* new entry */ }
@@ -161,7 +162,7 @@ export async function DELETE(request: Request) {
     try {
       const { blobs } = await list({ prefix: "pvcp/prompts-index" });
       if (blobs.length) {
-        const res = await fetch(blobs[0].url);
+        const res = await fetch(blobs[0].downloadUrl);
         if (res.ok) index = await res.json();
       }
     } catch { /* empty index */ }
@@ -173,12 +174,11 @@ export async function DELETE(request: Request) {
 
     for (const idxEntry of index) {
       if (idxEntry.processId !== processId) {
-        // Unrelated — keep as-is
         updatedIndex.push(idxEntry);
         continue;
       }
 
-      // Load the full entry
+      // Load the full entry — downloadUrl bypasses CDN cache
       const entryId  = buildEntryId(idxEntry.keyValue, processId);
       const blobPath = buildPromptBlobPath(entryId);
 
@@ -186,9 +186,8 @@ export async function DELETE(request: Request) {
       try {
         const { blobs } = await list({ prefix: blobPath });
         if (blobs.length) {
-          const res = await fetch(blobs[0].url);
+          const res = await fetch(blobs[0].downloadUrl);
           if (res.ok) entry = await res.json();
-          // Track the blob URL for potential deletion
           blobsToDelete.push(...blobs.map((b) => b.url));
         }
       } catch { continue; }

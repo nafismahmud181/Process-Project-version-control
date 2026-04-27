@@ -16,7 +16,8 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const res = await fetch(blobs[0].url);
+    // downloadUrl bypasses CDN cache — needed since entry blobs are overwritten on each new version
+    const res = await fetch(blobs[0].downloadUrl);
     if (!res.ok) {
       return NextResponse.json({ error: "Failed to fetch" }, { status: 502 });
     }
