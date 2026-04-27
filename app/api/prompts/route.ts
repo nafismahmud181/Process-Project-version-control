@@ -72,48 +72,56 @@ export async function POST(request: Request) {
           }
         } catch { /* new entry */ }
 
-        // Skip if content is identical to latest version
-        if (entry) {
-          const latest = entry.versions[entry.versions.length - 1];
-          if (
+        // Check if content is identical to latest version
+        const isIdentical = entry !== null && (() => {
+          const latest = entry!.versions[entry!.versions.length - 1];
+          return (
             latest.field_description === fieldDesc &&
             latest.rules_description === rulesDesc &&
             latest.extraction_type   === extractionType &&
             latest.doc_class         === docClass
-          ) return null; // no change
+          );
+        })();
+
+        let finalEntry: PromptEntry;
+
+        if (isIdentical && entry) {
+          // Content unchanged — reuse existing entry (no blob write needed)
+          // but still return it so the index stays up to date
+          finalEntry = entry;
+        } else {
+          const newVersion: PromptVersion = {
+            versionNumber: entry ? entry.versions.length + 1 : 1,
+            field_description: fieldDesc,
+            rules_description: rulesDesc,
+            extraction_type: extractionType,
+            doc_class: docClass,
+            sourceVersionLabel: versionMeta.label,
+            timestamp: new Date().toISOString(),
+          };
+
+          finalEntry = entry
+            ? { ...entry, versions: [...entry.versions, newVersion], updatedAt: new Date().toISOString() }
+            : {
+                keyValue: k.keyValue,
+                label: k.label,
+                keyType: k.type,
+                processName,
+                processId,
+                project,
+                versions: [newVersion],
+                updatedAt: new Date().toISOString(),
+              };
+
+          // Save blob only when content changed or entry is new
+          await put(blobPath, JSON.stringify(finalEntry), {
+            access: "public",
+            contentType: "application/json",
+            addRandomSuffix: false,
+          });
         }
 
-        const newVersion: PromptVersion = {
-          versionNumber: entry ? entry.versions.length + 1 : 1,
-          field_description: fieldDesc,
-          rules_description: rulesDesc,
-          extraction_type: extractionType,
-          doc_class: docClass,
-          sourceVersionLabel: versionMeta.label,
-          timestamp: new Date().toISOString(),
-        };
-
-        const updatedEntry: PromptEntry = entry
-          ? { ...entry, versions: [...entry.versions, newVersion], updatedAt: new Date().toISOString() }
-          : {
-              keyValue: k.keyValue,
-              label: k.label,
-              keyType: k.type,
-              processName,
-              processId,
-              project,
-              versions: [newVersion],
-              updatedAt: new Date().toISOString(),
-            };
-
-        // Save entry blob
-        await put(blobPath, JSON.stringify(updatedEntry), {
-          access: "public",
-          contentType: "application/json",
-          addRandomSuffix: false,
-        });
-
-        return updatedEntry;
+        return finalEntry;
       })
     );
 
