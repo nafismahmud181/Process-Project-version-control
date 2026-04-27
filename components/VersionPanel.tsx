@@ -119,7 +119,7 @@ export function VersionPanel() {
       if (!meta) return;
       setLoadingId(id);
       try {
-        const data = await fetchVersionData(meta.blobUrl);
+        const data = await fetchVersionData(id);
         setLoaded((prev) => ({ ...prev, [id]: data }));
       } catch {
         alert("Failed to load version data.");

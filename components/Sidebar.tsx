@@ -127,7 +127,7 @@ export function Sidebar({
                       {/* Download + Delete */}
                       <div className="flex shrink-0 items-center gap-1">
                         <a
-                          href={v.blobUrl}
+                          href={`/api/versions/${v.id}`}
                           download={`${v.processId}-v${v.versionNumber}.json`}
                           onClick={(e) => e.stopPropagation()}
                           title="Download JSON"

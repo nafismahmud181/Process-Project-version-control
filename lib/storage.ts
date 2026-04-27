@@ -1,6 +1,6 @@
 import type { VersionMeta, Process } from "@/types/process";
 
-// List all version metadata by calling the API
+// List all version metadata
 export async function fetchVersionIndex(): Promise<VersionMeta[]> {
   try {
     const res = await fetch("/api/versions");
@@ -11,7 +11,7 @@ export async function fetchVersionIndex(): Promise<VersionMeta[]> {
   }
 }
 
-// Upload a new version — sends file + metadata to the API
+// Upload a new version
 export async function uploadVersion(
   file: File,
   meta: Omit<VersionMeta, "blobUrl">
@@ -20,27 +20,22 @@ export async function uploadVersion(
   formData.append("file", file);
   formData.append("meta", JSON.stringify(meta));
 
-  const res = await fetch("/api/versions", {
-    method: "POST",
-    body: formData,
-  });
-
+  const res = await fetch("/api/versions", { method: "POST", body: formData });
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err || "Upload failed");
+    const body = await res.text();
+    throw new Error(body || "Upload failed");
   }
-
   return await res.json();
 }
 
-// Fetch the full process data directly from the Blob URL
-export async function fetchVersionData(blobUrl: string): Promise<Process> {
-  const res = await fetch(blobUrl);
+// Fetch version data via the server-side proxy (works with private blobs)
+export async function fetchVersionData(id: string): Promise<Process> {
+  const res = await fetch(`/api/versions/${id}`);
   if (!res.ok) throw new Error("Failed to fetch version data");
   return await res.json();
 }
 
-// Delete a version via the API
+// Delete a version
 export async function removeVersion(id: string): Promise<void> {
   await fetch(`/api/versions/${id}`, { method: "DELETE" });
 }
