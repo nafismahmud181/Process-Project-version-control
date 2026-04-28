@@ -1,37 +1,24 @@
-import { put, list } from "@vercel/blob";
 import { NextResponse } from "next/server";
-import type { VersionMeta } from "@/types/process";
+import { putObject, putFile, getObject, listKeys } from "@/lib/r2";
+import type { VersionMeta, Process } from "@/types/process";
 
 const META_PREFIX = "pvcp/meta/";
 const DATA_PREFIX = "pvcp/data/";
 
+// ─── GET /api/versions ────────────────────────────────────────────────────────
 export async function GET() {
   try {
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) {
-      return NextResponse.json(
-        { error: "Missing BLOB_READ_WRITE_TOKEN" },
-        { status: 500 }
-      );
-    }
+    const keys = await listKeys(META_PREFIX);
+    if (!keys.length) return NextResponse.json([]);
 
-    const { blobs } = await list({ prefix: META_PREFIX });
-
-    if (!blobs.length) return NextResponse.json([]);
-
-    // Use Promise.allSettled so one bad blob doesn't kill the whole list
     const results = await Promise.allSettled(
-      blobs.map(async (blob) => {
-        // blob.url is the permanent URL for public blobs
-        // blob.downloadUrl is a signed URL that can expire — avoid it here
-        const res = await fetch(blob.url);
-        if (!res.ok) throw new Error(`${blob.url} → ${res.status}`);
-        return (await res.json()) as VersionMeta;
-      })
+      keys.map((key) => getObject<VersionMeta>(key))
     );
 
     const metas = results
-      .filter((r): r is PromiseFulfilledResult<VersionMeta> => r.status === "fulfilled")
+      .filter((r): r is PromiseFulfilledResult<VersionMeta> =>
+        r.status === "fulfilled" && r.value !== null
+      )
       .map((r) => r.value);
 
     metas.sort(
@@ -46,16 +33,9 @@ export async function GET() {
   }
 }
 
+// ─── POST /api/versions ───────────────────────────────────────────────────────
 export async function POST(request: Request) {
   try {
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) {
-      return NextResponse.json(
-        { error: "Missing BLOB_READ_WRITE_TOKEN" },
-        { status: 500 }
-      );
-    }
-
     const formData = await request.formData();
     const file    = formData.get("file") as File | null;
     const metaStr = formData.get("meta") as string | null;
@@ -65,44 +45,30 @@ export async function POST(request: Request) {
 
     const meta = JSON.parse(metaStr) as Omit<VersionMeta, "blobUrl">;
 
-    // Upload data blob — store-level privacy restricts direct access
-    const dataBlob = await put(`${DATA_PREFIX}${meta.id}.json`, file, {
-      access: "public",
-      contentType: "application/json",
-      addRandomSuffix: false,
-    });
+    // Upload data blob
+    await putFile(`${DATA_PREFIX}${meta.id}.json`, file);
 
-    const fullMeta: VersionMeta = { ...meta, blobUrl: dataBlob.url };
+    // blobUrl is kept for interface compatibility but R2 reads go through the proxy
+    const fullMeta: VersionMeta = { ...meta, blobUrl: `r2://${meta.id}` };
 
     // Upload meta blob
-    await put(`${META_PREFIX}${meta.id}.json`, JSON.stringify(fullMeta), {
-      access: "public",
-      contentType: "application/json",
-      addRandomSuffix: false,
-    });
+    await putObject(`${META_PREFIX}${meta.id}.json`, JSON.stringify(fullMeta));
 
-    // Sync prompts in the background (don't await — keeps response fast)
-    // Works for both web uploads and Chrome extension uploads
-    const fileText = await file.text();
-    const parsed   = JSON.parse(fileText);
-    const proc     = Array.isArray(parsed) ? parsed[0] : parsed;
+    // Sync prompts in the background
+    try {
+      const fileText = await file.text();
+      const parsed   = JSON.parse(fileText);
+      const proc     = Array.isArray(parsed) ? parsed[0] : parsed;
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-      ?? process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : "http://localhost:3000";
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+        ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-    fetch(`${baseUrl}/api/prompts`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({
-        keys:        proc.keys ?? [],
-        process:     proc,
-        versionMeta: fullMeta,
-      }),
-    }).catch((e: unknown) =>
-      console.error("[versions/route] prompt sync failed:", e)
-    );
+      fetch(`${baseUrl}/api/prompts`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ keys: proc.keys ?? [], process: proc, versionMeta: fullMeta }),
+      }).catch((e: unknown) => console.error("[versions/route] prompt sync failed:", e));
+    } catch { /* prompt sync is non-critical */ }
 
     return NextResponse.json(fullMeta);
   } catch (err) {

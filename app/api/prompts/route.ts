@@ -1,25 +1,14 @@
-import { put, list, del } from "@vercel/blob";
 import { NextResponse } from "next/server";
+import { putObject, getObject, listKeys, deleteObjects } from "@/lib/r2";
 import type { PromptEntry, PromptIndexEntry, PromptVersion } from "@/types/prompt";
 import type { ProcessKey, Process, VersionMeta } from "@/types/process";
-import {
-  buildEntryId,
-  buildPromptBlobPath,
-  PROMPTS_INDEX_PATH,
-} from "@/lib/prompts";
+import { buildEntryId, buildPromptBlobPath, PROMPTS_INDEX_PATH } from "@/lib/prompts";
 
 // ─── GET /api/prompts ─────────────────────────────────────────────────────────
 export async function GET() {
   try {
-    const { blobs } = await list({ prefix: "pvcp/prompts-index" });
-    if (!blobs.length) return NextResponse.json([]);
-
-    // downloadUrl bypasses CDN cache — critical for a frequently-overwritten index blob
-    const res = await fetch(blobs[0].downloadUrl);
-    if (!res.ok) return NextResponse.json([]);
-
-    const index: PromptIndexEntry[] = await res.json();
-    return NextResponse.json(index);
+    const index = await getObject<PromptIndexEntry[]>(PROMPTS_INDEX_PATH);
+    return NextResponse.json(index ?? []);
   } catch (err) {
     return NextResponse.json(
       { error: "Failed to fetch index", detail: String(err) },
@@ -41,17 +30,10 @@ export async function POST(request: Request) {
     const processName = process.name ?? process.free_name ?? "—";
     const project     = process.project ?? "—";
 
-    // Load current index once upfront
-    let index: PromptIndexEntry[] = [];
-    try {
-      const { blobs } = await list({ prefix: "pvcp/prompts-index" });
-      if (blobs.length) {
-        const res = await fetch(blobs[0].downloadUrl);
-        if (res.ok) index = await res.json();
-      }
-    } catch { /* start with empty index */ }
+    // Load current index
+    const index: PromptIndexEntry[] = (await getObject<PromptIndexEntry[]>(PROMPTS_INDEX_PATH)) ?? [];
 
-    // Process all keys in parallel — avoids sequential blob round-trips timing out
+    // Process all keys in parallel
     const results = await Promise.allSettled(
       keys.map(async (k) => {
         const entryId  = buildEntryId(k.keyValue, processId);
@@ -62,17 +44,9 @@ export async function POST(request: Request) {
         const extractionType = pp?.Extraction_Type ?? "";
         const docClass       = pp?.DocClass ?? "";
 
-        // Load existing entry (bypass CDN cache with downloadUrl)
-        let entry: PromptEntry | null = null;
-        try {
-          const { blobs } = await list({ prefix: blobPath });
-          if (blobs.length) {
-            const res = await fetch(blobs[0].downloadUrl);
-            if (res.ok) entry = await res.json();
-          }
-        } catch { /* new entry */ }
+        // Load existing entry
+        const entry = await getObject<PromptEntry>(blobPath);
 
-        // Check if content is identical to latest version
         const isIdentical = entry !== null && (() => {
           const latest = entry!.versions[entry!.versions.length - 1];
           return (
@@ -86,8 +60,6 @@ export async function POST(request: Request) {
         let finalEntry: PromptEntry;
 
         if (isIdentical && entry) {
-          // Content unchanged — reuse existing entry (no blob write needed)
-          // but still return it so the index stays up to date
           finalEntry = entry;
         } else {
           const newVersion: PromptVersion = {
@@ -113,53 +85,42 @@ export async function POST(request: Request) {
                 updatedAt: new Date().toISOString(),
               };
 
-          // Save blob only when content changed or entry is new
-          await put(blobPath, JSON.stringify(finalEntry), {
-            access: "public",
-            contentType: "application/json",
-            addRandomSuffix: false,
-          });
+          await putObject(blobPath, JSON.stringify(finalEntry));
         }
 
         return finalEntry;
       })
     );
 
-    // Collect successful entries and update index
+    // Update index
     for (const result of results) {
       if (result.status !== "fulfilled" || !result.value) continue;
-      const updatedEntry = result.value;
+      const e = result.value;
 
       const idxEntry: PromptIndexEntry = {
-        keyValue:       updatedEntry.keyValue,
-        label:          updatedEntry.label,
-        keyType:        updatedEntry.keyType,
-        processName:    updatedEntry.processName,
-        processId:      updatedEntry.processId,
-        project:        updatedEntry.project ?? "—",
-        versionCount:   updatedEntry.versions.length,
-        hasChanges:     updatedEntry.versions.length > 1,
-        updatedAt:      updatedEntry.updatedAt,
-        latestFieldDesc: updatedEntry.versions[updatedEntry.versions.length - 1]?.field_description ?? "",
+        keyValue:        e.keyValue,
+        label:           e.label,
+        keyType:         e.keyType,
+        processName:     e.processName,
+        processId:       e.processId,
+        project:         e.project ?? "—",
+        versionCount:    e.versions.length,
+        hasChanges:      e.versions.length > 1,
+        updatedAt:       e.updatedAt,
+        latestFieldDesc: e.versions[e.versions.length - 1]?.field_description ?? "",
       };
 
       const existingIdx = index.findIndex(
-        (i) => i.keyValue === updatedEntry.keyValue && i.processId === processId
+        (i) => i.keyValue === e.keyValue && i.processId === processId
       );
       if (existingIdx >= 0) index[existingIdx] = idxEntry;
       else index.push(idxEntry);
     }
 
-    // Save updated index once
-    await put(PROMPTS_INDEX_PATH, JSON.stringify(index), {
-      access: "public",
-      contentType: "application/json",
-      addRandomSuffix: false,
-    });
+    await putObject(PROMPTS_INDEX_PATH, JSON.stringify(index));
 
     const synced = results.filter((r) => r.status === "fulfilled" && r.value).length;
     return NextResponse.json({ synced });
-
   } catch (err) {
     return NextResponse.json(
       { error: "Sync failed", detail: String(err) },
@@ -169,8 +130,6 @@ export async function POST(request: Request) {
 }
 
 // ─── DELETE /api/prompts ──────────────────────────────────────────────────────
-// Receives { processId, sourceVersionLabel } and removes matching prompt versions.
-// If an entry has no versions left after removal, the whole entry is deleted.
 export async function DELETE(request: Request) {
   try {
     const { processId, sourceVersionLabel } = (await request.json()) as {
@@ -178,20 +137,9 @@ export async function DELETE(request: Request) {
       sourceVersionLabel: string;
     };
 
-    // Load index
-    let index: PromptIndexEntry[] = [];
-    try {
-      const { blobs } = await list({ prefix: "pvcp/prompts-index" });
-      if (blobs.length) {
-        const res = await fetch(blobs[0].downloadUrl);
-        if (res.ok) index = await res.json();
-      }
-    } catch { /* empty index */ }
-
-    // Only process entries belonging to this processId
-    const affected = index.filter((i) => i.processId === processId);
-    const blobsToDelete: string[] = [];
+    const index: PromptIndexEntry[] = (await getObject<PromptIndexEntry[]>(PROMPTS_INDEX_PATH)) ?? [];
     const updatedIndex: PromptIndexEntry[] = [];
+    const keysToDelete: string[] = [];
 
     for (const idxEntry of index) {
       if (idxEntry.processId !== processId) {
@@ -199,81 +147,39 @@ export async function DELETE(request: Request) {
         continue;
       }
 
-      // Load the full entry — downloadUrl bypasses CDN cache
       const entryId  = buildEntryId(idxEntry.keyValue, processId);
       const blobPath = buildPromptBlobPath(entryId);
-
-      let entry: PromptEntry | null = null;
-      try {
-        const { blobs } = await list({ prefix: blobPath });
-        if (blobs.length) {
-          const res = await fetch(blobs[0].downloadUrl);
-          if (res.ok) entry = await res.json();
-          blobsToDelete.push(...blobs.map((b) => b.url));
-        }
-      } catch { continue; }
+      const entry    = await getObject<PromptEntry>(blobPath);
 
       if (!entry) continue;
 
-      // Remove versions that came from this process version
       const remaining = entry.versions.filter(
         (v) => v.sourceVersionLabel !== sourceVersionLabel
       );
 
       if (remaining.length === 0) {
-        // Delete entire entry blob — already tracked in blobsToDelete
-        // Don't add to updatedIndex → removes from index too
+        keysToDelete.push(blobPath);
       } else {
-        // Re-number versions and save updated entry
-        const renumbered = remaining.map((v, i) => ({
-          ...v,
-          versionNumber: i + 1,
-        }));
-
+        const renumbered = remaining.map((v, i) => ({ ...v, versionNumber: i + 1 }));
         const updatedEntry: PromptEntry = {
           ...entry,
           versions: renumbered,
           updatedAt: new Date().toISOString(),
         };
-
-        await put(blobPath, JSON.stringify(updatedEntry), {
-          access: "public",
-          contentType: "application/json",
-          addRandomSuffix: false,
-        });
-
+        await putObject(blobPath, JSON.stringify(updatedEntry));
         updatedIndex.push({
           ...idxEntry,
           versionCount: renumbered.length,
-          hasChanges: renumbered.length > 1,
-          updatedAt: updatedEntry.updatedAt,
+          hasChanges:   renumbered.length > 1,
+          updatedAt:    updatedEntry.updatedAt,
         });
       }
     }
 
-    // Delete blobs for fully-removed entries
-    if (blobsToDelete.length > 0) {
-      // Only delete blobs for entries NOT being updated (those with remaining === 0)
-      const keptPaths = new Set(
-        updatedIndex
-          .filter((i) => i.processId === processId)
-          .map((i) => buildPromptBlobPath(buildEntryId(i.keyValue, processId)))
-      );
-      const toDelete = blobsToDelete.filter((url) =>
-        !Array.from(keptPaths).some((p) => url.includes(p.split("/").pop()!))
-      );
-      if (toDelete.length) await del(toDelete);
-    }
+    if (keysToDelete.length) await deleteObjects(keysToDelete);
+    await putObject(PROMPTS_INDEX_PATH, JSON.stringify(updatedIndex));
 
-    // Save updated index
-    await put(PROMPTS_INDEX_PATH, JSON.stringify(updatedIndex), {
-      access: "public",
-      contentType: "application/json",
-      addRandomSuffix: false,
-    });
-
-    const removed = affected.length - updatedIndex.filter((i) => i.processId === processId).length;
-    return NextResponse.json({ removed, updated: updatedIndex.filter((i) => i.processId === processId).length });
+    return NextResponse.json({ success: true });
   } catch (err) {
     return NextResponse.json(
       { error: "Delete failed", detail: String(err) },

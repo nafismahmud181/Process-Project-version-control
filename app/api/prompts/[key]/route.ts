@@ -1,8 +1,9 @@
-import { list, del } from "@vercel/blob";
 import { NextResponse } from "next/server";
+import { getObject, putObject, deleteObjects, listKeys } from "@/lib/r2";
 import { buildPromptBlobPath, PROMPTS_INDEX_PATH } from "@/lib/prompts";
-import type { PromptIndexEntry } from "@/types/prompt";
+import type { PromptEntry, PromptIndexEntry } from "@/types/prompt";
 
+// GET /api/prompts/[key]
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ key: string }> }
@@ -10,19 +11,13 @@ export async function GET(
   try {
     const { key } = await params;
     const blobPath = buildPromptBlobPath(decodeURIComponent(key));
+    const entry    = await getObject<PromptEntry>(blobPath);
 
-    const { blobs } = await list({ prefix: blobPath });
-    if (!blobs.length) {
+    if (!entry) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // downloadUrl bypasses CDN cache — needed since entry blobs are overwritten on each new version
-    const res = await fetch(blobs[0].downloadUrl);
-    if (!res.ok) {
-      return NextResponse.json({ error: "Failed to fetch" }, { status: 502 });
-    }
-
-    return NextResponse.json(await res.json());
+    return NextResponse.json(entry);
   } catch (err) {
     return NextResponse.json(
       { error: "Failed", detail: String(err) },
@@ -31,41 +26,27 @@ export async function GET(
   }
 }
 
+// DELETE /api/prompts/[key]
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ key: string }> }
 ) {
   try {
-    const { key } = await params;
+    const { key }    = await params;
     const decodedKey = decodeURIComponent(key);
-    const blobPath = buildPromptBlobPath(decodedKey);
+    const blobPath   = buildPromptBlobPath(decodedKey);
 
     // Delete the entry blob
-    const { blobs } = await list({ prefix: blobPath });
-    if (blobs.length) await del(blobs.map((b) => b.url));
+    await deleteObjects([blobPath]);
 
     // Remove from index
-    let index: PromptIndexEntry[] = [];
-    try {
-      const { blobs: idxBlobs } = await list({ prefix: "pvcp/prompts-index" });
-      if (idxBlobs.length) {
-        const res = await fetch(idxBlobs[0].url);
-        if (res.ok) index = await res.json();
-      }
-    } catch { /* empty */ }
-
-    // The key format is "keyValue__processId"
+    const index: PromptIndexEntry[] = (await getObject<PromptIndexEntry[]>(PROMPTS_INDEX_PATH)) ?? [];
     const [keyValue, processId] = decodedKey.split("__");
     const updatedIndex = index.filter(
       (i) => !(i.keyValue === keyValue && i.processId === processId)
     );
 
-    const { put } = await import("@vercel/blob");
-    await put(PROMPTS_INDEX_PATH, JSON.stringify(updatedIndex), {
-      access: "public",
-      contentType: "application/json",
-      addRandomSuffix: false,
-    });
+    await putObject(PROMPTS_INDEX_PATH, JSON.stringify(updatedIndex));
 
     return NextResponse.json({ success: true });
   } catch (err) {
