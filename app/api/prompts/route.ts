@@ -33,9 +33,16 @@ export async function POST(request: Request) {
     // Load current index
     const index: PromptIndexEntry[] = (await getObject<PromptIndexEntry[]>(PROMPTS_INDEX_PATH)) ?? [];
 
+    // Only sync keys that have at least one description
+    const keysToSync = keys.filter(
+      (k) =>
+        k.process_prompt?.Field_Description?.trim() ||
+        k.process_prompt?.Rules_Description?.trim()
+    );
+
     // Process all keys in parallel
     const results = await Promise.allSettled(
-      keys.map(async (k) => {
+      keysToSync.map(async (k) => {
         const entryId  = buildEntryId(k.keyValue, processId);
         const blobPath = buildPromptBlobPath(entryId);
         const pp       = k.process_prompt as import("@/types/process").ProcessPrompt | undefined;

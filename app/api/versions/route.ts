@@ -66,7 +66,15 @@ export async function POST(request: Request) {
       fetch(`${baseUrl}/api/prompts`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ keys: proc.keys ?? [], process: proc, versionMeta: fullMeta }),
+        body:    JSON.stringify({
+          keys: (proc.keys ?? []).filter(
+            (k: { process_prompt?: { Field_Description?: string; Rules_Description?: string } }) =>
+              k.process_prompt?.Field_Description?.trim() ||
+              k.process_prompt?.Rules_Description?.trim()
+          ),
+          process: proc,
+          versionMeta: fullMeta,
+        }),
       }).catch((e: unknown) => console.error("[versions/route] prompt sync failed:", e));
     } catch { /* prompt sync is non-critical */ }
 
