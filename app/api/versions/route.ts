@@ -81,6 +81,29 @@ export async function POST(request: Request) {
       addRandomSuffix: false,
     });
 
+    // Sync prompts in the background (don't await — keeps response fast)
+    // Works for both web uploads and Chrome extension uploads
+    const fileText = await file.text();
+    const parsed   = JSON.parse(fileText);
+    const proc     = Array.isArray(parsed) ? parsed[0] : parsed;
+
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+      ?? process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : "http://localhost:3000";
+
+    fetch(`${baseUrl}/api/prompts`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({
+        keys:        proc.keys ?? [],
+        process:     proc,
+        versionMeta: fullMeta,
+      }),
+    }).catch((e: unknown) =>
+      console.error("[versions/route] prompt sync failed:", e)
+    );
+
     return NextResponse.json(fullMeta);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
